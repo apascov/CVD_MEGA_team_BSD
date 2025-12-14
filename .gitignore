@@ -22,3 +22,6 @@ Thumbs.db
 
 # Streamlit
 .streamlit/
+
+# Exclude oversized RF model
+models/rf.pkl

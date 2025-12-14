@@ -115,8 +115,7 @@ with right_col:
     We trained three machine learning models to predict CVD risk:
     
     1. **Logistic Regression**: Fast, interpretable baseline model
-    2. **Random Forest**: Ensemble method, captures non-linear patterns
-    3. **XGBoost**: Advanced boosting algorithm, often highest performance
+    2. **XGBoost**: Advanced boosting algorithm, often highest performance
     
     **Why these models?** They balance interpretability with predictive power and handle imbalanced data well.
     
