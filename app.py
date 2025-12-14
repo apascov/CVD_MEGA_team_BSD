@@ -112,7 +112,7 @@ with right_col:
     st.markdown("""
     **Models Used & Performance**
     
-    We trained three machine learning models to predict CVD risk:
+    We trained two machine learning models to predict CVD risk:
     
     1. **Logistic Regression**: Fast, interpretable baseline model
     2. **XGBoost**: Advanced boosting algorithm, often highest performance
