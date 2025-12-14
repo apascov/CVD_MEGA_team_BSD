@@ -5,6 +5,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import json
+import joblib
 
 # Import visualization functions
 from visualizations.vis1 import plot_vis1
@@ -23,6 +25,37 @@ st.set_page_config(
 def load_data():
     """Load the cardiovascular disease dataset"""
     return pd.read_csv("data/CVD_cleaned.csv")
+
+# Model + metrics loading with caching
+@st.cache_resource
+def load_models():
+    """Load trained ML models and metrics if available."""
+    models = {}
+    metrics = {}
+
+    # Attempt to load models
+    model_paths = {
+        "Logistic Regression": "models/logreg.pkl",
+        "Random Forest": "models/rf.pkl",
+        "XGBoost": "models/xgb.pkl",
+    }
+    for name, path in model_paths.items():
+        try:
+            if Path(path).exists():
+                models[name] = joblib.load(path)
+        except Exception:
+            pass
+
+    # Attempt to load metrics
+    metrics_path = Path("models/metrics.json")
+    if metrics_path.exists():
+        try:
+            with open(metrics_path, "r", encoding="utf-8") as f:
+                metrics = json.load(f)
+        except Exception:
+            metrics = {}
+
+    return models, metrics
 
 # Load data
 df = load_data()
@@ -73,18 +106,49 @@ with left_col:
 
 # ==================== RIGHT COLUMN ====================
 with right_col:
-    # ML Model Summary (Placeholder)
+    # ML Model Summary
     st.header("🤖 Machine Learning Model")
+
+    st.markdown("""
+    **Models Used & Performance**
     
-    st.info("""
-    **Machine Learning Model Summary** (Placeholder)
+    We trained three machine learning models to predict CVD risk:
     
-    Once the ML model is trained, this section will display:
-    - Algorithm used
-    - Performance metrics (Accuracy, Precision, Recall, ROC-AUC)
-    - Feature importance
-    - Preprocessing steps
+    1. **Logistic Regression**: Fast, interpretable baseline model
+    2. **Random Forest**: Ensemble method, captures non-linear patterns
+    3. **XGBoost**: Advanced boosting algorithm, often highest performance
+    
+    **Why these models?** They balance interpretability with predictive power and handle imbalanced data well.
+    
+    ---
+    
+    **Select a model below and choose a decision threshold to explore predictions.**
     """)
+
+    models, metrics = load_models()
+    if not models:
+        st.info(
+            "No saved models found in `models/`. Train in the notebook and save `*.pkl` + `metrics.json`."
+        )
+    else:
+        # Model selector stored in session state so prediction section can reuse it
+        model_name = st.selectbox("Select model", list(models.keys()), key="model_select")
+
+        # Map display name to metrics key (if using short keys in JSON)
+        name_to_key = {
+            "Logistic Regression": "logreg",
+            "Random Forest": "rf",
+            "XGBoost": "xgb",
+        }
+        m = metrics.get(name_to_key.get(model_name, model_name), {})
+
+        st.markdown(f"**Performance on Test Set** ({model_name})")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Accuracy", f"{m.get('accuracy', float('nan')):.3f}" if 'accuracy' in m else "N/A")
+        c2.metric("Precision", f"{m.get('precision', float('nan')):.3f}" if 'precision' in m else "N/A")
+        c3.metric("Recall", f"{m.get('recall', float('nan')):.3f}" if 'recall' in m else "N/A")
+        c4.metric("F1", f"{m.get('f1', float('nan')):.3f}" if 'f1' in m else "N/A")
+        c5.metric("ROC AUC", f"{m.get('roc_auc', float('nan')):.3f}" if 'roc_auc' in m else "N/A")
 
 st.markdown("---")
 
@@ -185,36 +249,141 @@ with st.form("pred_form"):
     col1, col2 = st.columns(2)
     with col1:
         age = st.number_input("Age", min_value=18, max_value=100, value=45)
-        gender = st.selectbox("Gender", ["Male", "Female"])
+        gender = st.selectbox("Sex", ["Male", "Female"])  # matches feature name "Sex"
         height = st.number_input("Height (cm)", min_value=100, max_value=250, value=170)
     
     with col2:
         weight = st.number_input("Weight (kg)", min_value=30, max_value=200, value=70)
-        bmi = st.number_input("BMI", min_value=10.0, max_value=60.0, value=24.0)
+        # Auto-calculate BMI from height and weight
+        height_m = height / 100.0  # convert cm to meters
+        bmi = weight / (height_m ** 2)
+        st.metric("BMI (auto-calculated)", f"{bmi:.1f}")
     
     st.subheader("Health Metrics")
     col3, col4 = st.columns(2)
     with col3:
-        general_health = st.selectbox("General Health", 
-            ["Excellent", "Very Good", "Good", "Fair", "Poor"])
-        exercise = st.selectbox("Regular Exercise", ["Yes", "No"])
+        general_health = st.selectbox(
+            "General_Health",
+            ["Excellent", "Very Good", "Good", "Fair", "Poor"]
+        )
+        exercise = st.selectbox("Exercise", ["Yes", "No"])
+        diabetes = st.selectbox("Diabetes", ["Yes", "No"])
+        depression = st.selectbox("Depression", ["Yes", "No"])
     
     with col4:
-        diabetes = st.selectbox("Diabetes", ["Yes", "No"])
-        smoking = st.selectbox("Smoking History", ["Yes", "No"])
+        smoking = st.selectbox("Smoking_History", ["Yes", "No"])
+        # If dataset present, pull choices; otherwise provide sensible defaults
+        checkup_options = (
+            sorted(df["Checkup"].dropna().unique().tolist())
+            if "Checkup" in df.columns else
+            [
+                "Within the past year",
+                "Within the past 2 years",
+                "Within the past 5 years",
+                "5 or more years ago",
+                "Never",
+            ]
+        )
+        checkup = st.selectbox("Checkup", checkup_options)
+        age_cat_options = (
+            sorted(df["Age_Category"].dropna().unique().tolist())
+            if "Age_Category" in df.columns else
+            ["18-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80+"]
+        )
+        age_category = st.selectbox("Age_Category", age_cat_options)
+
+    st.subheader("Diet & Consumption")
+    st.markdown("""**Ordinal Scale (1-5):**
+    - **1**: Never
+    - **2**: Rarely (few times per year)
+    - **3**: Sometimes (few times per month)
+    - **4**: Frequently (several times per week)
+    - **5**: Very Frequently (daily or almost daily)
+    """)
+    
+    ordinal_labels = {
+        1: "Never",
+        2: "Rarely (few times/year)",
+        3: "Sometimes (few times/month)",
+        4: "Frequently (several times/week)",
+        5: "Very Frequently (daily)"
+    }
+    
+    c5, c6, c7 = st.columns(3)
+    with c5:
+        alcohol = st.selectbox(
+            "Alcohol_Consumption",
+            [1, 2, 3, 4, 5],
+            format_func=lambda x: ordinal_labels[x],
+            index=1
+        )
+    with c6:
+        fruit = st.selectbox(
+            "Fruit_Consumption",
+            [1, 2, 3, 4, 5],
+            format_func=lambda x: ordinal_labels[x],
+            index=3
+        )
+    with c7:
+        greens = st.selectbox(
+            "Green_Vegetables_Consumption",
+            [1, 2, 3, 4, 5],
+            format_func=lambda x: ordinal_labels[x],
+            index=3
+        )
+
+    fried_potato = st.selectbox(
+        "FriedPotato_Consumption",
+        [1, 2, 3, 4, 5],
+        format_func=lambda x: ordinal_labels[x],
+        index=0
+    )
+
+    arthritis = st.selectbox("Arthritis", ["Yes", "No"])
+
+    # Reuse selected model from summary; fallback to first available
+    models, metrics = load_models()
+    model_name = st.session_state.get("model_select", next(iter(models.keys())) if models else None)
+    threshold_default = 0.5
+    if model_name and metrics:
+        name_to_key = {"Logistic Regression": "logreg", "Random Forest": "rf", "XGBoost": "xgb"}
+        m = metrics.get(name_to_key.get(model_name, model_name), {})
+        threshold_default = float(m.get("threshold", 0.5))
+
+    threshold = st.slider("Decision threshold", 0.0, 1.0, threshold_default, 0.01)
     
     submit = st.form_submit_button("🔍 Predict CVD Risk", use_container_width=True)
     
     if submit:
-        st.warning("""
-        ⚠️ **Model Not Yet Available**
-        
-        The prediction model is still being trained. Once ready, your CVD risk will be displayed here.
-        """)
-        
-        # Placeholder for future prediction
-        # risk = model.predict_proba(features)[0, 1]
-        # st.metric("Estimated CVD Risk", f"{risk*100:.1f}%")
+        if not models or not model_name:
+            st.warning("No model available. Please train and save models to the `models/` folder.")
+        else:
+            pipeline = models[model_name]
+            # Build input in the exact feature schema used for training
+            feature_row = {
+                "General_Health": general_health,
+                "Checkup": checkup,
+                "Exercise": exercise,
+                "Smoking_History": smoking,
+                "Alcohol_Consumption": alcohol,
+                "Fruit_Consumption": fruit,
+                "Green_Vegetables_Consumption": greens,
+                "FriedPotato_Consumption": fried_potato,
+                "Sex": gender,
+                "Age_Category": age_category,
+                "BMI": float(bmi),
+                "Diabetes": diabetes,
+                "Depression": depression,
+                "Arthritis": arthritis,
+            }
+            X_input = pd.DataFrame([feature_row])
+            try:
+                prob = float(pipeline.predict_proba(X_input)[:, 1][0])
+                st.metric("Estimated CVD Risk", f"{prob*100:.1f}%")
+                label = "CVD" if prob >= threshold else "No CVD"
+                st.success(f"Classification (threshold {threshold:.2f}): {label}")
+            except Exception as e:
+                st.error(f"Prediction failed: {e}")
 
 # Footer
 st.markdown("---")
